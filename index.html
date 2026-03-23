@@ -330,16 +330,16 @@
 
   <!-- 动作按钮 -->
   <div id="action-btns">
-    <button class="act-btn" id="btn-slash" onpointerdown="triggerAction('slash')">
+    <button class="act-btn" id="btn-slash" data-action="slash">
       ⚔️<span>劈砍</span>
     </button>
-    <button class="act-btn" id="btn-stab" onpointerdown="triggerAction('stab')">
+    <button class="act-btn" id="btn-stab" data-action="stab">
       🗡️<span>刺击</span>
     </button>
-    <button class="act-btn" id="btn-roar" onpointerdown="triggerAction('roar')">
+    <button class="act-btn" id="btn-roar" data-action="roar">
       😾<span>怒吼</span>
     </button>
-    <button class="act-btn" id="btn-jump" onpointerdown="triggerAction('jump')">
+    <button class="act-btn" id="btn-jump" data-action="jump">
       💨<span>跳跃</span>
     </button>
   </div>
@@ -431,12 +431,16 @@ async function initCamera() {
     stream = await navigator.mediaDevices.getUserMedia(constraints);
     video.srcObject = stream;
     video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+    video.style.opacity = '1';
     await video.play();
+    console.log('Camera initialized successfully');
 
     resizeCanvas();
     initCatPos();
     initJoystick();
+    initActionButtons();
     requestAnimationFrame(renderLoop);
+    console.log('Ninja cat initialized at:', cat.x, cat.y);
     showToast('🐱 忍者猫已就绪！用摇杆移动，右侧按钮出招');
     setTimeout(showInstallTip, 3000);
   } catch(e) {
@@ -445,10 +449,13 @@ async function initCamera() {
       stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode, width:{ideal:1280}, height:{ideal:720} } });
       video.srcObject = stream;
       video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+      video.style.opacity = '1';
       await video.play();
+      console.log('Camera initialized (no audio)');
       resizeCanvas();
       initCatPos();
       initJoystick();
+      initActionButtons();
       requestAnimationFrame(renderLoop);
       showToast('📷 摄像头已启动（无麦克风录音）');
     } catch(e2) {
@@ -927,6 +934,7 @@ function drawKatana(ctx, sz, action) {
 //  触发动作
 // ============================================================
 function triggerAction(type) {
+  console.log('Action triggered:', type);
   cat.action = type;
   cat.actionTimer = type === 'roar' ? 70 : type === 'jump' ? 50 : 35;
 
@@ -1061,6 +1069,9 @@ function initJoystick() {
   const outer = document.getElementById('joystick-outer');
   const inner = document.getElementById('joystick-inner');
   const maxR = joystick.maxR;
+  const outer = document.getElementById('joystick-outer');
+  const inner = document.getElementById('joystick-inner');
+  const maxR = joystick.maxR;
 
   function getPos(e) {
     const t = e.touches ? e.touches[0] : e;
@@ -1071,10 +1082,19 @@ function initJoystick() {
     };
   }
 
+  // 触摸事件防止默认行为
   outer.addEventListener('touchstart', e => {
     e.preventDefault();
     joystick.active = true;
     inner.classList.add('active');
+    // 立即处理初始触摸位置
+    const {x, y} = getPos(e);
+    const dist = Math.sqrt(x*x + y*y);
+    const ratio = dist > maxR ? maxR/dist : 1;
+    const cx = x * ratio, cy = y * ratio;
+    inner.style.transform = `translate(calc(-50% + ${cx}px), calc(-50% + ${cy}px))`;
+    joystick.dx = cx / maxR;
+    joystick.dy = cy / maxR;
   }, {passive:false});
 
   outer.addEventListener('touchmove', e => {
@@ -1096,6 +1116,7 @@ function initJoystick() {
   };
   outer.addEventListener('touchend', endJoystick);
   outer.addEventListener('touchcancel', endJoystick);
+  outer.addEventListener('pointerleave', endJoystick);
 
   // 桌面鼠标支持（调试用）
   outer.addEventListener('mousedown', e => {
@@ -1119,6 +1140,38 @@ function initJoystick() {
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+  });
+}
+
+// 动作按钮事件监听
+function initActionButtons() {
+  const buttons = document.querySelectorAll('.act-btn');
+  buttons.forEach(btn => {
+    const action = btn.getAttribute('data-action');
+
+    // 支持多种事件类型以确保兼容性
+    btn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      triggerAction(action);
+    }, {passive:false});
+
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      triggerAction(action);
+    });
+
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      triggerAction(action);
+    });
+
+    // 桌面鼠标支持
+    btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      triggerAction(action);
+    });
   });
 }
 
