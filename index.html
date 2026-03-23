@@ -1,0 +1,1346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="忍者猫"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="theme-color" content="#000000"/>
+  <link rel="manifest" href="manifest.json"/>
+  <link rel="apple-touch-icon" href="icon-192.png"/>
+  <title>忍者猫 AR</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+    html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'PingFang SC','Segoe UI',sans-serif;}
+
+    /* 摄像头视频层 */
+    #video{
+      position:fixed;top:0;left:0;
+      width:100%;height:100%;
+      object-fit:cover;
+      transform:scaleX(-1); /* 前置镜头镜像修正 */
+      z-index:1;
+    }
+
+    /* AR Canvas层（叠加在视频上） */
+    #ar-canvas{
+      position:fixed;top:0;left:0;
+      width:100%;height:100%;
+      z-index:2;
+      pointer-events:none;
+    }
+
+    /* UI层 */
+    #ui{
+      position:fixed;top:0;left:0;
+      width:100%;height:100%;
+      z-index:3;
+      pointer-events:none;
+    }
+    #ui > *{pointer-events:auto;}
+
+    /* 顶部状态栏 */
+    #topbar{
+      position:absolute;top:0;left:0;right:0;
+      padding:12px 16px;
+      display:flex;justify-content:space-between;align-items:center;
+      background:linear-gradient(to bottom,rgba(0,0,0,0.6),transparent);
+    }
+    .rec-indicator{
+      display:none;
+      align-items:center;gap:6px;
+      background:rgba(0,0,0,0.5);
+      border:1px solid rgba(255,255,255,0.2);
+      border-radius:99px;
+      padding:5px 12px;
+      font-size:0.78rem;
+      color:#fff;
+    }
+    .rec-indicator.active{display:flex;}
+    .rec-dot{
+      width:8px;height:8px;
+      background:#e94560;
+      border-radius:50%;
+      animation:blink 1s step-end infinite;
+    }
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+    #rec-timer{font-size:0.78rem;color:#fff;}
+
+    .cam-switch-btn{
+      background:rgba(0,0,0,0.5);
+      border:1px solid rgba(255,255,255,0.3);
+      border-radius:50%;
+      width:40px;height:40px;
+      display:flex;align-items:center;justify-content:center;
+      font-size:1.3rem;cursor:pointer;
+      color:#fff;
+    }
+
+    /* 忍者猫状态显示 */
+    #cat-status{
+      position:absolute;top:65px;left:16px;
+      background:rgba(0,0,0,0.55);
+      border:1px solid rgba(0,245,255,0.35);
+      border-radius:12px;
+      padding:8px 12px;
+      font-size:0.75rem;
+      color:rgba(255,255,255,0.85);
+      line-height:1.7;
+      backdrop-filter:blur(6px);
+    }
+    #cat-status b{color:#00f5ff;}
+
+    /* 移动摇杆区 */
+    #joystick-zone{
+      position:absolute;bottom:140px;left:20px;
+      width:110px;height:110px;
+    }
+    #joystick-outer{
+      width:110px;height:110px;
+      background:rgba(255,255,255,0.08);
+      border:2px solid rgba(255,255,255,0.25);
+      border-radius:50%;
+      position:relative;
+      backdrop-filter:blur(4px);
+    }
+    #joystick-inner{
+      position:absolute;
+      width:44px;height:44px;
+      background:rgba(0,245,255,0.5);
+      border:2px solid rgba(0,245,255,0.8);
+      border-radius:50%;
+      top:50%;left:50%;
+      transform:translate(-50%,-50%);
+      transition:background 0.15s;
+    }
+    #joystick-inner.active{background:rgba(0,245,255,0.8);}
+
+    /* 动作按钮区 */
+    #action-btns{
+      position:absolute;bottom:140px;right:16px;
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:12px;
+    }
+    .act-btn{
+      width:64px;height:64px;
+      border-radius:50%;
+      border:none;
+      display:flex;flex-direction:column;
+      align-items:center;justify-content:center;
+      cursor:pointer;
+      font-size:1.4rem;
+      transition:transform 0.1s,opacity 0.1s;
+      box-shadow:0 4px 16px rgba(0,0,0,0.4);
+      -webkit-user-select:none;user-select:none;
+    }
+    .act-btn:active{transform:scale(0.88);opacity:0.8;}
+    .act-btn span{font-size:0.55rem;color:#fff;margin-top:1px;font-weight:700;letter-spacing:0.5px;}
+    #btn-slash{background:radial-gradient(circle,#e94560,#8b0000);}
+    #btn-stab {background:radial-gradient(circle,#7b2ff7,#3d0070);}
+    #btn-roar {background:radial-gradient(circle,#f5a623,#8b4500);}
+    #btn-jump {background:radial-gradient(circle,#00b4d8,#005f7a);}
+
+    /* 底部工具栏 */
+    #bottombar{
+      position:absolute;bottom:0;left:0;right:0;
+      padding:16px 24px;
+      padding-bottom:calc(16px + env(safe-area-inset-bottom));
+      background:linear-gradient(to top,rgba(0,0,0,0.7),transparent);
+      display:flex;justify-content:space-around;align-items:center;
+    }
+
+    .tool-btn{
+      display:flex;flex-direction:column;align-items:center;gap:4px;
+      background:rgba(0,0,0,0.45);
+      border:1px solid rgba(255,255,255,0.2);
+      border-radius:16px;
+      padding:10px 16px;
+      cursor:pointer;
+      transition:all 0.2s;
+      backdrop-filter:blur(6px);
+      color:#fff;
+    }
+    .tool-btn:active{transform:scale(0.93);background:rgba(255,255,255,0.15);}
+    .tool-btn .t-icon{font-size:1.6rem;}
+    .tool-btn .t-label{font-size:0.65rem;color:rgba(255,255,255,0.7);white-space:nowrap;}
+
+    /* 拍照大按钮 */
+    #btn-photo{
+      width:72px;height:72px;
+      border-radius:50%;
+      background:#fff;
+      border:4px solid rgba(255,255,255,0.5);
+      cursor:pointer;
+      transition:transform 0.1s;
+      display:flex;align-items:center;justify-content:center;
+      box-shadow:0 0 0 3px rgba(255,255,255,0.2);
+    }
+    #btn-photo:active{transform:scale(0.9);}
+    #btn-photo-inner{
+      width:56px;height:56px;
+      border-radius:50%;
+      background:#fff;
+      border:2px solid #ccc;
+    }
+    #btn-record.recording{border-color:#e94560 !important;}
+    #btn-record.recording .t-icon::after{content:'⏹';}
+
+    /* 权限提示 */
+    #perm-overlay{
+      position:fixed;inset:0;
+      background:rgba(0,0,0,0.92);
+      z-index:99;
+      display:flex;flex-direction:column;
+      align-items:center;justify-content:center;
+      padding:32px;
+      text-align:center;
+      color:#fff;
+    }
+    #perm-overlay h2{font-size:1.6rem;margin-bottom:12px;}
+    #perm-overlay p{color:rgba(255,255,255,0.6);font-size:0.9rem;line-height:1.7;margin-bottom:24px;}
+    #btn-allow{
+      padding:14px 36px;
+      background:linear-gradient(135deg,#00f5ff,#7b2ff7);
+      border:none;border-radius:99px;
+      color:#fff;font-size:1rem;font-weight:800;
+      cursor:pointer;letter-spacing:1px;
+    }
+    #btn-allow:active{opacity:0.8;}
+    #perm-overlay .perm-icon{font-size:4rem;margin-bottom:16px;}
+
+    /* 闪光拍照特效 */
+    #flash{
+      position:fixed;inset:0;
+      background:#fff;
+      z-index:98;
+      opacity:0;
+      pointer-events:none;
+      transition:opacity 0.08s;
+    }
+    #flash.on{opacity:0.9;}
+
+    /* 提示Toast */
+    .toast{
+      position:fixed;
+      top:18%;left:50%;
+      transform:translateX(-50%);
+      background:rgba(0,0,0,0.82);
+      color:#00f5ff;
+      padding:10px 22px;
+      border-radius:99px;
+      font-size:0.88rem;
+      font-weight:700;
+      border:1px solid rgba(0,245,255,0.3);
+      z-index:200;
+      white-space:nowrap;
+      animation:toastAnim 2.2s ease forwards;
+    }
+    @keyframes toastAnim{
+      0%{opacity:0;transform:translateX(-50%) translateY(-8px)}
+      12%{opacity:1;transform:translateX(-50%) translateY(0)}
+      78%{opacity:1}
+      100%{opacity:0;transform:translateX(-50%) translateY(-8px)}
+    }
+
+    /* 攻击特效文字 */
+    .slash-fx{
+      position:fixed;
+      font-size:2.4rem;font-weight:900;
+      pointer-events:none;z-index:50;
+      text-shadow:0 0 12px currentColor;
+      animation:slashAnim 0.75s ease-out forwards;
+    }
+    @keyframes slashAnim{
+      0%{opacity:1;transform:translate(-50%,-50%) scale(0.4) rotate(-20deg)}
+      40%{opacity:1;transform:translate(-50%,-80%) scale(1.3) rotate(5deg)}
+      100%{opacity:0;transform:translate(-50%,-160%) scale(0.9) rotate(10deg)}
+    }
+
+    /* 安装提示 */
+    #install-tip{
+      position:fixed;bottom:100px;left:50%;
+      transform:translateX(-50%);
+      background:rgba(0,0,0,0.88);
+      border:1px solid rgba(0,245,255,0.3);
+      border-radius:14px;
+      padding:12px 20px;
+      color:#fff;font-size:0.8rem;
+      text-align:center;line-height:1.6;
+      z-index:90;
+      display:none;
+      max-width:280px;
+    }
+    #install-tip b{color:#00f5ff;}
+    #install-tip .close-tip{
+      position:absolute;top:6px;right:10px;
+      font-size:1rem;cursor:pointer;color:rgba(255,255,255,0.5);
+    }
+  </style>
+</head>
+<body>
+
+<!-- 权限请求页 -->
+<div id="perm-overlay">
+  <div class="perm-icon">🐱</div>
+  <h2>忍者猫 AR</h2>
+  <p>需要授权使用<b style="color:#00f5ff">摄像头</b>和<b style="color:#f5a623">麦克风</b>（录像需要），忍者猫才能出现在你的世界里！</p>
+  <button id="btn-allow" onclick="initCamera()">⚔️ 授权并启动</button>
+  <p style="margin-top:16px;font-size:0.72rem;color:rgba(255,255,255,0.3)">本APP不上传任何数据，摄像头仅在本地使用</p>
+</div>
+
+<!-- 摄像头视频 -->
+<video id="video" autoplay playsinline muted></video>
+
+<!-- AR Canvas -->
+<canvas id="ar-canvas"></canvas>
+
+<!-- 闪光特效 -->
+<div id="flash"></div>
+
+<!-- UI -->
+<div id="ui">
+  <!-- 顶部 -->
+  <div id="topbar">
+    <div class="rec-indicator" id="rec-indicator">
+      <div class="rec-dot"></div>
+      <span id="rec-timer">00:00</span>
+      <span style="font-size:0.72rem;opacity:0.7">录制中</span>
+    </div>
+    <div style="flex:1"></div>
+    <div class="cam-switch-btn" id="btn-cam-switch" onclick="switchCamera()">🔄</div>
+  </div>
+
+  <!-- 猫状态 -->
+  <div id="cat-status">
+    <b>忍者猫</b><br/>
+    动作：<span id="status-action">待机</span><br/>
+    位置：<span id="status-pos">屏幕中央</span>
+  </div>
+
+  <!-- 摇杆 -->
+  <div id="joystick-zone">
+    <div id="joystick-outer">
+      <div id="joystick-inner"></div>
+    </div>
+  </div>
+
+  <!-- 动作按钮 -->
+  <div id="action-btns">
+    <button class="act-btn" id="btn-slash" onpointerdown="triggerAction('slash')">
+      ⚔️<span>劈砍</span>
+    </button>
+    <button class="act-btn" id="btn-stab" onpointerdown="triggerAction('stab')">
+      🗡️<span>刺击</span>
+    </button>
+    <button class="act-btn" id="btn-roar" onpointerdown="triggerAction('roar')">
+      😾<span>怒吼</span>
+    </button>
+    <button class="act-btn" id="btn-jump" onpointerdown="triggerAction('jump')">
+      💨<span>跳跃</span>
+    </button>
+  </div>
+
+  <!-- 底部工具栏 -->
+  <div id="bottombar">
+    <div class="tool-btn" id="btn-record" onclick="toggleRecord()">
+      <span class="t-icon">⏺️</span>
+      <span class="t-label">录像</span>
+    </div>
+    <div id="btn-photo" onclick="takePhoto()">
+      <div id="btn-photo-inner"></div>
+    </div>
+    <div class="tool-btn" onclick="showGallery()">
+      <span class="t-icon">🖼️</span>
+      <span class="t-label">相册</span>
+    </div>
+  </div>
+</div>
+
+<!-- 安装提示 -->
+<div id="install-tip">
+  <span class="close-tip" onclick="this.parentElement.style.display='none'">✕</span>
+  📱 <b>安装到手机桌面：</b><br/>
+  iOS：点击Safari底部"分享"→"添加到主屏幕"<br/>
+  安卓：点击浏览器菜单→"添加到主屏幕"
+</div>
+
+<script>
+// ============================================================
+//  全局状态
+// ============================================================
+const video     = document.getElementById('video');
+const arCanvas  = document.getElementById('ar-canvas');
+const ctx       = arCanvas.getContext('2d');
+
+let stream        = null;
+let mediaRecorder = null;
+let recChunks     = [];
+let recStartTime  = 0;
+let recTimerID    = null;
+let isRecording   = false;
+let facingMode    = 'environment'; // 默认后置
+
+// 忍者猫状态
+const cat = {
+  x: 0, y: 0,        // 位置（会在 resize 后初始化）
+  vx: 0, vy: 0,      // 速度
+  size: 120,          // 基础大小
+  action: 'idle',     // idle | walk | slash | stab | roar | jump
+  actionTimer: 0,
+  facing: 1,          // 1=右 -1=左
+  jumpVy: 0,
+  isJumping: false,
+  groundY: 0,
+  frame: 0,           // 动画帧
+  shadowAlpha: 0.35,
+  // 攻击特效
+  slashLines: [],
+  // 怒吼波纹
+  roarRings: [],
+};
+
+// 摇杆状态
+const joystick = {
+  active: false,
+  startX: 0, startY: 0,
+  dx: 0, dy: 0,
+  maxR: 33,
+};
+
+let audioCtx = null;
+
+// ============================================================
+//  摄像头初始化
+// ============================================================
+async function initCamera() {
+  document.getElementById('perm-overlay').style.display = 'none';
+
+  try {
+    const constraints = {
+      video: {
+        facingMode: facingMode,
+        width:  { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: true,
+    };
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = stream;
+    video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+    await video.play();
+
+    resizeCanvas();
+    initCatPos();
+    initJoystick();
+    requestAnimationFrame(renderLoop);
+    showToast('🐱 忍者猫已就绪！用摇杆移动，右侧按钮出招');
+    setTimeout(showInstallTip, 3000);
+  } catch(e) {
+    // 如果麦克风权限失败，只用视频
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode, width:{ideal:1280}, height:{ideal:720} } });
+      video.srcObject = stream;
+      video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+      await video.play();
+      resizeCanvas();
+      initCatPos();
+      initJoystick();
+      requestAnimationFrame(renderLoop);
+      showToast('📷 摄像头已启动（无麦克风录音）');
+    } catch(e2) {
+      document.getElementById('perm-overlay').style.display = 'flex';
+      document.getElementById('perm-overlay').querySelector('p').textContent =
+        '摄像头授权失败：' + e2.message + '。请在浏览器设置中允许摄像头权限后刷新。';
+    }
+  }
+}
+
+async function switchCamera() {
+  facingMode = (facingMode === 'environment') ? 'user' : 'environment';
+  if (stream) { stream.getTracks().forEach(t => t.stop()); }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode, width:{ideal:1280}, height:{ideal:720} },
+      audio: true,
+    });
+    video.srcObject = stream;
+    video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+    await video.play();
+    showToast(facingMode === 'user' ? '📷 已切换到前置摄像头' : '📷 已切换到后置摄像头');
+  } catch(e) { showToast('⚠️ 切换失败：' + e.message); }
+}
+
+// ============================================================
+//  Canvas 尺寸
+// ============================================================
+function resizeCanvas() {
+  arCanvas.width  = window.innerWidth;
+  arCanvas.height = window.innerHeight;
+  cat.groundY = window.innerHeight * 0.72;
+  if (cat.y === 0) initCatPos();
+}
+window.addEventListener('resize', resizeCanvas);
+
+function initCatPos() {
+  cat.x = window.innerWidth  / 2;
+  cat.y = window.innerHeight * 0.72;
+  cat.groundY = cat.y;
+}
+
+// ============================================================
+//  主渲染循环
+// ============================================================
+function renderLoop() {
+  ctx.clearRect(0, 0, arCanvas.width, arCanvas.height);
+
+  updateCat();
+  drawCat();
+
+  document.getElementById('status-action').textContent = actionLabel(cat.action);
+  document.getElementById('status-pos').textContent =
+    `${Math.round(cat.x / arCanvas.width * 100)}% / ${Math.round(cat.y / arCanvas.height * 100)}%`;
+
+  requestAnimationFrame(renderLoop);
+}
+
+function actionLabel(a) {
+  return {idle:'待机',walk:'移动',slash:'⚔️劈砍',stab:'🗡️刺击',roar:'😾怒吼',jump:'💨跳跃'}[a] || a;
+}
+
+// ============================================================
+//  忍者猫物理 & 更新
+// ============================================================
+function updateCat() {
+  cat.frame++;
+
+  // 摇杆移动
+  if (joystick.active && (joystick.dx !== 0 || joystick.dy !== 0)) {
+    const speed = 5;
+    const nx = cat.x + joystick.dx * speed;
+    const ny = cat.y + joystick.dy * speed;
+    const margin = cat.size * 0.35;
+    cat.x = Math.max(margin, Math.min(arCanvas.width  - margin, nx));
+    // 只在地面时允许左右+上下拖
+    if (!cat.isJumping) {
+      cat.y = Math.max(arCanvas.height * 0.25, Math.min(arCanvas.height * 0.85, ny));
+      cat.groundY = cat.y;
+    }
+    cat.facing = joystick.dx > 0.1 ? 1 : joystick.dx < -0.1 ? -1 : cat.facing;
+    if (cat.action === 'idle') cat.action = 'walk';
+  } else {
+    if (cat.action === 'walk') cat.action = 'idle';
+  }
+
+  // 跳跃物理
+  if (cat.isJumping) {
+    cat.y += cat.jumpVy;
+    cat.jumpVy += 1.2; // 重力
+    if (cat.y >= cat.groundY) {
+      cat.y = cat.groundY;
+      cat.isJumping = false;
+      cat.jumpVy = 0;
+      if (cat.action === 'jump') cat.action = 'idle';
+    }
+  }
+
+  // 动作计时
+  if (cat.actionTimer > 0) {
+    cat.actionTimer--;
+    if (cat.actionTimer === 0 && cat.action !== 'walk' && cat.action !== 'idle') {
+      cat.action = 'idle';
+    }
+  }
+
+  // 更新攻击特效
+  cat.slashLines = cat.slashLines.filter(l => {
+    l.life--;
+    return l.life > 0;
+  });
+  cat.roarRings = cat.roarRings.filter(r => {
+    r.radius += 8;
+    r.alpha  -= 0.04;
+    return r.alpha > 0;
+  });
+}
+
+// ============================================================
+//  绘制忍者猫（黑猫忍者形象，带动作帧）
+// ============================================================
+function drawCat() {
+  const { x, y, size, action, facing, frame, slashLines, roarRings } = cat;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(facing, 1);
+
+  const s = size / 120; // 缩放比
+
+  // ---- 阴影 ----
+  ctx.save();
+  ctx.scale(1, 0.25);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, size * 0.45, size * 0.2, 0, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(0,0,0,${cat.shadowAlpha})`;
+  ctx.fill();
+  ctx.restore();
+
+  // ---- 怒吼波纹 ----
+  roarRings.forEach(r => {
+    ctx.beginPath();
+    ctx.arc(0, -size*0.5, r.radius, 0, Math.PI*2);
+    ctx.strokeStyle = `rgba(255,120,0,${r.alpha})`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  });
+
+  // ---- 攻击轨迹线 ----
+  slashLines.forEach(l => {
+    ctx.save();
+    ctx.globalAlpha = l.life / l.maxLife;
+    ctx.strokeStyle = l.color;
+    ctx.lineWidth = l.width * (l.life / l.maxLife);
+    ctx.lineCap = 'round';
+    ctx.shadowColor = l.color;
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.moveTo(l.x1, l.y1);
+    ctx.lineTo(l.x2, l.y2);
+    ctx.stroke();
+    ctx.restore();
+  });
+
+  // 动画偏移
+  let bodyOff = 0;
+  if (action === 'walk') {
+    bodyOff = Math.sin(frame * 0.25) * 3 * s;
+  }
+  if (action === 'idle') {
+    bodyOff = Math.sin(frame * 0.08) * 2 * s;
+  }
+
+  // ---- 开始绘制猫体 ----
+  ctx.save();
+  ctx.translate(0, bodyOff);
+
+  // 尾巴
+  drawTail(ctx, action, frame, s);
+
+  // 腿（前后）
+  drawLegs(ctx, action, frame, s);
+
+  // 身体
+  ctx.fillStyle = '#111';
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.ellipse(0, -size*0.28, size*0.32, size*0.38, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // 忍者衣服纹路
+  ctx.strokeStyle = 'rgba(0,245,255,0.18)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(-size*0.1, -size*0.52);
+  ctx.lineTo(-size*0.08, -size*0.1);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(size*0.1, -size*0.52);
+  ctx.lineTo(size*0.08, -size*0.1);
+  ctx.stroke();
+
+  // 腰带
+  ctx.fillStyle = '#c0392b';
+  ctx.beginPath();
+  ctx.roundRect(-size*0.3, -size*0.2, size*0.6, size*0.09, 4);
+  ctx.fill();
+
+  // 头
+  drawHead(ctx, action, frame, s, size);
+
+  // 持刀的手臂（右手）
+  drawArm(ctx, action, frame, s, size);
+
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawTail(ctx, action, frame, s) {
+  const sz = 120 * s;
+  ctx.save();
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = sz * 0.07;
+  ctx.lineCap = 'round';
+  ctx.shadowColor = '#000';
+  ctx.shadowBlur = 4;
+  const swing = Math.sin(frame * 0.1) * 0.4;
+  ctx.beginPath();
+  ctx.moveTo(-sz*0.15, -sz*0.18);
+  ctx.quadraticCurveTo(-sz*0.6 + swing*sz*0.2, -sz*0.05, -sz*0.55 + swing*sz*0.3, sz*0.15);
+  ctx.quadraticCurveTo(-sz*0.5 + swing*sz*0.1, sz*0.3, -sz*0.42 + swing*sz*0.2, sz*0.22);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawLegs(ctx, action, frame, s) {
+  const sz = 120 * s;
+  const walkSwing = action === 'walk' ? Math.sin(frame * 0.25) * 0.35 : 0;
+  ctx.fillStyle = '#0d0d0d';
+
+  // 左后腿
+  ctx.save();
+  ctx.translate(-sz*0.14, -sz*0.01);
+  ctx.rotate(-0.3 + walkSwing);
+  ctx.beginPath(); ctx.ellipse(0, sz*0.22, sz*0.1, sz*0.22, 0, 0, Math.PI*2); ctx.fill();
+  // 爪子
+  drawPaw(ctx, 0, sz*0.38, sz*0.13);
+  ctx.restore();
+
+  // 右后腿
+  ctx.save();
+  ctx.translate(sz*0.14, -sz*0.01);
+  ctx.rotate(0.3 - walkSwing);
+  ctx.beginPath(); ctx.ellipse(0, sz*0.22, sz*0.1, sz*0.22, 0, 0, Math.PI*2); ctx.fill();
+  drawPaw(ctx, 0, sz*0.38, sz*0.13);
+  ctx.restore();
+}
+
+function drawPaw(ctx, x, y, r) {
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.ellipse(x, y, r, r*0.55, 0, 0, Math.PI*2); ctx.fill();
+  // 小爪趾
+  ctx.fillStyle = '#333';
+  [-r*0.4, 0, r*0.4].forEach(ox => {
+    ctx.beginPath(); ctx.ellipse(x+ox, y-r*0.25, r*0.2, r*0.22, 0, 0, Math.PI*2); ctx.fill();
+  });
+}
+
+function drawHead(ctx, action, frame, s, size) {
+  ctx.save();
+  const sz = size;
+
+  // 头偏移（不同动作）
+  let headX = 0, headY = -sz * 0.62;
+  if (action === 'slash') { headX = sz*0.1; }
+  if (action === 'roar')  { headX = sz*0.05; headY = -sz*0.65; }
+
+  ctx.translate(headX, headY);
+
+  // 头主体
+  ctx.fillStyle = '#111';
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, sz*0.32, sz*0.3, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // 忍者头巾
+  ctx.fillStyle = '#0a0a12';
+  ctx.beginPath();
+  ctx.ellipse(0, -sz*0.1, sz*0.34, sz*0.16, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.roundRect(-sz*0.33, -sz*0.12, sz*0.66, sz*0.09, 4);
+  ctx.fill();
+  // 头巾飘带
+  ctx.beginPath();
+  ctx.moveTo(sz*0.3, -sz*0.1);
+  ctx.quadraticCurveTo(sz*0.48, -sz*0.18, sz*0.45, -sz*0.03);
+  ctx.quadraticCurveTo(sz*0.42, sz*0.08, sz*0.3, sz*0.0);
+  ctx.fill();
+
+  // 额头忍者标记（青色）
+  ctx.fillStyle = '#00f5ff';
+  ctx.font = `bold ${sz*0.18}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.fillText('忍', 0, -sz*0.04);
+
+  // 耳朵
+  ctx.fillStyle = '#111';
+  ctx.beginPath(); ctx.moveTo(-sz*0.24,-sz*0.18); ctx.lineTo(-sz*0.32,-sz*0.38); ctx.lineTo(-sz*0.12,-sz*0.26); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo( sz*0.24,-sz*0.18); ctx.lineTo( sz*0.32,-sz*0.38); ctx.lineTo( sz*0.12,-sz*0.26); ctx.closePath(); ctx.fill();
+  // 耳内
+  ctx.fillStyle = '#2a0a0a';
+  ctx.beginPath(); ctx.moveTo(-sz*0.23,-sz*0.20); ctx.lineTo(-sz*0.28,-sz*0.33); ctx.lineTo(-sz*0.14,-sz*0.26); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo( sz*0.23,-sz*0.20); ctx.lineTo( sz*0.28,-sz*0.33); ctx.lineTo( sz*0.14,-sz*0.26); ctx.closePath(); ctx.fill();
+
+  // 眼睛（愤怒细长）
+  const isAction = ['slash','stab','roar'].includes(action);
+  if (action === 'roar') {
+    // 嚎叫：眼睛大张，橙色
+    ctx.fillStyle = '#ff8c00';
+    ctx.beginPath(); ctx.ellipse(-sz*0.12, sz*0.01, sz*0.1, sz*0.09, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#ff8c00';
+    ctx.beginPath(); ctx.ellipse( sz*0.12, sz*0.01, sz*0.1, sz*0.09, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath(); ctx.ellipse(-sz*0.1, sz*0.02, sz*0.06, sz*0.07, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse( sz*0.14, sz*0.02, sz*0.06, sz*0.07, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.ellipse(-sz*0.08, sz*0, sz*0.025, sz*0.025, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse( sz*0.16, sz*0, sz*0.025, sz*0.025, 0, 0, Math.PI*2); ctx.fill();
+  } else {
+    // 正常 / 攻击：细长眼
+    ctx.fillStyle = isAction ? '#ff3300' : '#cc3300';
+    ctx.save();
+    // 左眼
+    ctx.translate(-sz*0.12, sz*0.01);
+    ctx.rotate(isAction ? -0.2 : 0);
+    ctx.beginPath(); ctx.ellipse(0, 0, sz*0.1, sz*0.055, 0, 0, Math.PI*2); ctx.fill();
+    // 竖瞳
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(0, 0, sz*0.03, sz*0.048, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.ellipse(sz*0.025, -sz*0.015, sz*0.018, sz*0.018, 0, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+    // 右眼
+    ctx.fillStyle = isAction ? '#ff3300' : '#cc3300';
+    ctx.save();
+    ctx.translate( sz*0.12, sz*0.01);
+    ctx.rotate(isAction ? 0.2 : 0);
+    ctx.beginPath(); ctx.ellipse(0, 0, sz*0.1, sz*0.055, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(0, 0, sz*0.03, sz*0.048, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.ellipse(sz*0.025, -sz*0.015, sz*0.018, sz*0.018, 0, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+    // 攻击眉毛
+    if (isAction) {
+      ctx.strokeStyle = '#ff3300'; ctx.lineWidth = sz*0.025;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-sz*0.2, -sz*0.07); ctx.lineTo(-sz*0.04, -sz*0.04); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo( sz*0.2, -sz*0.07); ctx.lineTo( sz*0.04, -sz*0.04); ctx.stroke();
+    }
+  }
+
+  // 胡须
+  ctx.strokeStyle = 'rgba(200,200,200,0.55)'; ctx.lineWidth = 1.2;
+  ctx.lineCap = 'round';
+  [-1,1].forEach(side => {
+    ctx.beginPath(); ctx.moveTo(side*sz*0.04, sz*0.08); ctx.lineTo(side*sz*0.28, sz*0.05); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(side*sz*0.04, sz*0.12); ctx.lineTo(side*sz*0.28, sz*0.12); ctx.stroke();
+  });
+
+  // 嘴
+  if (action === 'roar') {
+    ctx.fillStyle = '#8b0000';
+    ctx.beginPath();
+    ctx.moveTo(-sz*0.12, sz*0.14);
+    ctx.quadraticCurveTo(0, sz*0.28, sz*0.12, sz*0.14);
+    ctx.quadraticCurveTo(0, sz*0.22, -sz*0.12, sz*0.14);
+    ctx.fill();
+    // 牙齿
+    ctx.fillStyle = '#fff';
+    [-sz*0.05, sz*0.05].forEach(tx => {
+      ctx.beginPath(); ctx.moveTo(tx, sz*0.14); ctx.lineTo(tx-sz*0.03, sz*0.22); ctx.lineTo(tx+sz*0.03, sz*0.22); ctx.closePath(); ctx.fill();
+    });
+  } else {
+    ctx.strokeStyle = '#333'; ctx.lineWidth = sz*0.022;
+    ctx.beginPath();
+    ctx.moveTo(-sz*0.08, sz*0.14);
+    ctx.quadraticCurveTo(0, sz*0.2, sz*0.08, sz*0.14);
+    ctx.stroke();
+  }
+
+  // 鼻子
+  ctx.fillStyle = '#2a0a0a';
+  ctx.beginPath(); ctx.ellipse(0, sz*0.09, sz*0.045, sz*0.032, 0, 0, Math.PI*2); ctx.fill();
+
+  ctx.restore();
+}
+
+function drawArm(ctx, action, frame, s, size) {
+  ctx.save();
+  const sz = size;
+
+  if (action === 'slash') {
+    // 劈砍：手臂斜向右上挥
+    ctx.translate(sz*0.28, -sz*0.45);
+    ctx.rotate(-1.2 + Math.sin(frame*0.5)*0.3);
+    // 手臂
+    ctx.fillStyle = '#111';
+    ctx.beginPath(); ctx.ellipse(0, sz*0.18, sz*0.085, sz*0.2, 0, 0, Math.PI*2); ctx.fill();
+    // 忍刀
+    drawKatana(ctx, sz, action);
+  } else if (action === 'stab') {
+    // 刺击：手臂向右平刺
+    ctx.translate(sz*0.3, -sz*0.4);
+    ctx.rotate(0.1);
+    ctx.fillStyle = '#111';
+    ctx.beginPath(); ctx.ellipse(0, sz*0.18, sz*0.085, sz*0.2, 0, 0, Math.PI*2); ctx.fill();
+    drawKatana(ctx, sz, action);
+  } else {
+    // 待机 / 行走：刀斜背在背后
+    ctx.translate(sz*0.2, -sz*0.55);
+    ctx.rotate(0.5 + Math.sin(frame*0.08)*0.05);
+    ctx.fillStyle = '#0d0d0d';
+    ctx.beginPath(); ctx.ellipse(0, sz*0.18, sz*0.085, sz*0.2, 0, 0, Math.PI*2); ctx.fill();
+    drawKatana(ctx, sz, 'idle');
+  }
+
+  ctx.restore();
+}
+
+function drawKatana(ctx, sz, action) {
+  ctx.save();
+  if (action === 'stab') {
+    ctx.rotate(-Math.PI/2 + 0.15);
+  }
+  // 刀鞘/柄
+  ctx.fillStyle = '#8b1a1a';
+  ctx.beginPath(); ctx.roundRect(-sz*0.038, sz*0.1, sz*0.076, sz*0.18, 4); ctx.fill();
+  // 护手
+  ctx.fillStyle = '#f5a623';
+  ctx.beginPath(); ctx.roundRect(-sz*0.07, sz*0.25, sz*0.14, sz*0.04, 3); ctx.fill();
+  // 刀身（发光）
+  ctx.shadowColor = 'rgba(200,220,255,0.9)';
+  ctx.shadowBlur = 14;
+  const kGrad = ctx.createLinearGradient(-sz*0.03, sz*0.29, sz*0.03, sz*0.29);
+  kGrad.addColorStop(0, '#dde8ff');
+  kGrad.addColorStop(0.5, '#ffffff');
+  kGrad.addColorStop(1, '#99aacc');
+  ctx.fillStyle = kGrad;
+  ctx.beginPath();
+  ctx.moveTo(-sz*0.02, sz*0.29);
+  ctx.lineTo( sz*0.02, sz*0.29);
+  ctx.lineTo( sz*0.005, sz*0.29 + sz*0.55);
+  ctx.lineTo(-sz*0.005, sz*0.29 + sz*0.55);
+  ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0;
+  // 刀纹（刃纹）
+  ctx.strokeStyle = 'rgba(200,230,255,0.5)';
+  ctx.lineWidth = 0.8;
+  for (let i = 1; i <= 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(-sz*0.018, sz*0.29 + sz*0.1*i);
+    ctx.lineTo( sz*0.018, sz*0.29 + sz*0.08*i);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ============================================================
+//  触发动作
+// ============================================================
+function triggerAction(type) {
+  cat.action = type;
+  cat.actionTimer = type === 'roar' ? 70 : type === 'jump' ? 50 : 35;
+
+  if (type === 'slash') {
+    // 劈砍特效线
+    const dir = cat.facing;
+    cat.slashLines.push({
+      x1: cat.x + dir*cat.size*0.2, y1: cat.y - cat.size*0.7,
+      x2: cat.x + dir*cat.size*0.8, y2: cat.y - cat.size*0.1,
+      color: '#fff', width: 6, life: 20, maxLife: 20
+    });
+    cat.slashLines.push({
+      x1: cat.x + dir*cat.size*0.1, y1: cat.y - cat.size*0.8,
+      x2: cat.x + dir*cat.size*0.75, y2: cat.y - cat.size*0.2,
+      color: '#e0e8ff', width: 3, life: 16, maxLife: 16
+    });
+    spawnFX(cat.x + dir*60, cat.y - cat.size*0.5, '⚡劈！', '#fff');
+    playSlashSound();
+  } else if (type === 'stab') {
+    const dir = cat.facing;
+    cat.slashLines.push({
+      x1: cat.x, y1: cat.y - cat.size*0.5,
+      x2: cat.x + dir*cat.size*0.9, y2: cat.y - cat.size*0.45,
+      color: '#00f5ff', width: 5, life: 18, maxLife: 18
+    });
+    spawnFX(cat.x + dir*80, cat.y - cat.size*0.5, '💥刺！', '#00f5ff');
+    playStabSound();
+  } else if (type === 'roar') {
+    // 怒吼波纹
+    for (let i = 0; i < 3; i++) {
+      setTimeout(() => {
+        cat.roarRings.push({ radius: cat.size*0.2, alpha: 0.7 });
+      }, i * 120);
+    }
+    spawnFX(cat.x, cat.y - cat.size*0.9, '😾RAAWR!!', '#ff8c00');
+    playRoarSound();
+  } else if (type === 'jump') {
+    if (!cat.isJumping) {
+      cat.isJumping = true;
+      cat.jumpVy = -22;
+      spawnFX(cat.x, cat.y - cat.size*0.3, '💨', '#fff');
+    }
+  }
+}
+
+// ============================================================
+//  音效（Web Audio API 合成）
+// ============================================================
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function playSlashSound() {
+  try {
+    const ac = getAudioCtx();
+    const buf = ac.createBuffer(1, ac.sampleRate * 0.18, ac.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random()*2-1) * Math.pow(1 - i/data.length, 1.5);
+    }
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    const filter = ac.createBiquadFilter();
+    filter.type = 'highpass'; filter.frequency.value = 800;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.6, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.18);
+    src.connect(filter); filter.connect(gain); gain.connect(ac.destination);
+    src.start();
+  } catch(e){}
+}
+
+function playStabSound() {
+  try {
+    const ac = getAudioCtx();
+    const osc = ac.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(600, ac.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(200, ac.currentTime + 0.12);
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.25, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.15);
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.start(); osc.stop(ac.currentTime + 0.15);
+  } catch(e){}
+}
+
+function playRoarSound() {
+  try {
+    const ac = getAudioCtx();
+    // 低沉怒吼：多层合成
+    const layers = [
+      {type:'sawtooth', freq:80,  end:40,  dur:0.9, gain:0.4},
+      {type:'sawtooth', freq:120, end:55,  dur:0.8, gain:0.3},
+      {type:'square',   freq:60,  end:30,  dur:1.1, gain:0.2},
+    ];
+    layers.forEach(l => {
+      const osc = ac.createOscillator();
+      osc.type = l.type;
+      osc.frequency.setValueAtTime(l.freq, ac.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(l.end, ac.currentTime + l.dur * 0.7);
+      const gain = ac.createGain();
+      gain.gain.setValueAtTime(l.gain, ac.currentTime + 0.05);
+      gain.gain.setValueAtTime(l.gain, ac.currentTime + l.dur * 0.5);
+      gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + l.dur);
+      // 颤音（LFO）
+      const lfo = ac.createOscillator();
+      lfo.frequency.value = 6;
+      const lfoGain = ac.createGain(); lfoGain.gain.value = 8;
+      lfo.connect(lfoGain); lfoGain.connect(osc.frequency);
+      lfo.start(); lfo.stop(ac.currentTime + l.dur);
+      osc.connect(gain); gain.connect(ac.destination);
+      osc.start(); osc.stop(ac.currentTime + l.dur);
+    });
+    // 噪声成分
+    const buf = ac.createBuffer(1, ac.sampleRate * 0.9, ac.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random()*2-1) * 0.15 * Math.pow(1-i/d.length, 0.6);
+    const ns = ac.createBufferSource(); ns.buffer = buf;
+    const nf = ac.createBiquadFilter(); nf.type = 'lowpass'; nf.frequency.value = 300;
+    const ng = ac.createGain(); ng.gain.value = 0.35;
+    ns.connect(nf); nf.connect(ng); ng.connect(ac.destination);
+    ns.start();
+  } catch(e){}
+}
+
+// ============================================================
+//  摇杆控制
+// ============================================================
+function initJoystick() {
+  const outer = document.getElementById('joystick-outer');
+  const inner = document.getElementById('joystick-inner');
+  const maxR = joystick.maxR;
+
+  function getPos(e) {
+    const t = e.touches ? e.touches[0] : e;
+    const rect = outer.getBoundingClientRect();
+    return {
+      x: t.clientX - rect.left - rect.width/2,
+      y: t.clientY - rect.top  - rect.height/2,
+    };
+  }
+
+  outer.addEventListener('touchstart', e => {
+    e.preventDefault();
+    joystick.active = true;
+    inner.classList.add('active');
+  }, {passive:false});
+
+  outer.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const {x, y} = getPos(e);
+    const dist = Math.sqrt(x*x + y*y);
+    const ratio = dist > maxR ? maxR/dist : 1;
+    const cx = x * ratio, cy = y * ratio;
+    inner.style.transform = `translate(calc(-50% + ${cx}px), calc(-50% + ${cy}px))`;
+    joystick.dx = cx / maxR;
+    joystick.dy = cy / maxR;
+  }, {passive:false});
+
+  const endJoystick = () => {
+    joystick.active = false;
+    joystick.dx = 0; joystick.dy = 0;
+    inner.style.transform = 'translate(-50%,-50%)';
+    inner.classList.remove('active');
+  };
+  outer.addEventListener('touchend', endJoystick);
+  outer.addEventListener('touchcancel', endJoystick);
+
+  // 桌面鼠标支持（调试用）
+  outer.addEventListener('mousedown', e => {
+    joystick.active = true;
+    joystick.startX = e.clientX;
+    joystick.startY = e.clientY;
+    inner.classList.add('active');
+    const onMove = ev => {
+      const x = ev.clientX - joystick.startX;
+      const y = ev.clientY - joystick.startY;
+      const dist = Math.sqrt(x*x + y*y);
+      const r = dist > maxR ? maxR/dist : 1;
+      const cx = x*r, cy = y*r;
+      inner.style.transform = `translate(calc(-50% + ${cx}px), calc(-50% + ${cy}px))`;
+      joystick.dx = cx/maxR; joystick.dy = cy/maxR;
+    };
+    const onUp = () => {
+      endJoystick();
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+// ============================================================
+//  录像功能
+// ============================================================
+async function toggleRecord() {
+  if (!isRecording) {
+    await startRecord();
+  } else {
+    stopRecord();
+  }
+}
+
+async function startRecord() {
+  if (!stream) { showToast('⚠️ 请先启动摄像头'); return; }
+
+  // 合成摄像头视频 + AR Canvas
+  const compositeCanvas = document.createElement('canvas');
+  compositeCanvas.width  = arCanvas.width;
+  compositeCanvas.height = arCanvas.height;
+  const cctx = compositeCanvas.getContext('2d');
+
+  // 每帧把视频和AR叠加画到合成canvas
+  let drawing = true;
+  function drawFrame() {
+    if (!drawing) return;
+    cctx.save();
+    if (facingMode === 'user') {
+      cctx.translate(compositeCanvas.width, 0);
+      cctx.scale(-1, 1);
+    }
+    cctx.drawImage(video, 0, 0, compositeCanvas.width, compositeCanvas.height);
+    cctx.restore();
+    cctx.drawImage(arCanvas, 0, 0);
+    requestAnimationFrame(drawFrame);
+  }
+  drawFrame();
+
+  const compositeStream = compositeCanvas.captureStream(30);
+  // 加入音频轨道
+  const audioTracks = stream.getAudioTracks();
+  audioTracks.forEach(t => compositeStream.addTrack(t));
+
+  const mimeType = getSupportedMimeType();
+  const options = mimeType ? { mimeType } : {};
+  try {
+    mediaRecorder = new MediaRecorder(compositeStream, options);
+  } catch(e) {
+    mediaRecorder = new MediaRecorder(compositeStream);
+  }
+
+  recChunks = [];
+  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recChunks.push(e.data); };
+  mediaRecorder.onstop = () => {
+    drawing = false;
+    const blob = new Blob(recChunks, { type: mimeType || 'video/webm' });
+    const url  = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `忍者猫_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'-')}.webm`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    showToast('✅ 录像已保存！');
+  };
+
+  mediaRecorder.start(200);
+  isRecording = true;
+  recStartTime = Date.now();
+
+  const recBtn = document.getElementById('btn-record');
+  recBtn.querySelector('.t-icon').textContent = '⏹️';
+  recBtn.querySelector('.t-label').textContent = '停止';
+  recBtn.style.borderColor = '#e94560';
+
+  document.getElementById('rec-indicator').classList.add('active');
+  recTimerID = setInterval(updateRecTimer, 1000);
+  showToast('🔴 开始录像！');
+}
+
+function stopRecord() {
+  if (mediaRecorder && isRecording) {
+    mediaRecorder.stop();
+    isRecording = false;
+    clearInterval(recTimerID);
+
+    const recBtn = document.getElementById('btn-record');
+    recBtn.querySelector('.t-icon').textContent = '⏺️';
+    recBtn.querySelector('.t-label').textContent = '录像';
+    recBtn.style.borderColor = '';
+    document.getElementById('rec-indicator').classList.remove('active');
+  }
+}
+
+function updateRecTimer() {
+  const secs = Math.floor((Date.now() - recStartTime) / 1000);
+  const m = String(Math.floor(secs/60)).padStart(2,'0');
+  const s = String(secs % 60).padStart(2,'0');
+  document.getElementById('rec-timer').textContent = `${m}:${s}`;
+}
+
+function getSupportedMimeType() {
+  const types = [
+    'video/mp4;codecs=h264,aac',
+    'video/mp4',
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+  ];
+  for (const t of types) {
+    if (MediaRecorder.isTypeSupported(t)) return t;
+  }
+  return '';
+}
+
+// ============================================================
+//  拍照功能
+// ============================================================
+function takePhoto() {
+  if (!stream) { showToast('⚠️ 请先启动摄像头'); return; }
+
+  const photoCanvas = document.createElement('canvas');
+  photoCanvas.width  = arCanvas.width;
+  photoCanvas.height = arCanvas.height;
+  const pctx = photoCanvas.getContext('2d');
+
+  pctx.save();
+  if (facingMode === 'user') {
+    pctx.translate(photoCanvas.width, 0);
+    pctx.scale(-1,1);
+  }
+  pctx.drawImage(video, 0, 0, photoCanvas.width, photoCanvas.height);
+  pctx.restore();
+  pctx.drawImage(arCanvas, 0, 0);
+
+  // 闪光特效
+  const fl = document.getElementById('flash');
+  fl.classList.add('on');
+  setTimeout(() => fl.classList.remove('on'), 150);
+
+  // 下载图片
+  photoCanvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a   = document.createElement('a');
+    a.href     = url;
+    a.download = `忍者猫_${Date.now()}.jpg`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    showToast('📸 照片已保存！');
+  }, 'image/jpeg', 0.92);
+}
+
+// ============================================================
+//  特效 & Toast
+// ============================================================
+function spawnFX(x, y, text, color) {
+  const el = document.createElement('div');
+  el.className = 'slash-fx';
+  el.style.left  = x + 'px';
+  el.style.top   = y + 'px';
+  el.style.color = color || '#fff';
+  el.textContent = text;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 800);
+}
+
+function showToast(text) {
+  const old = document.querySelector('.toast');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.className   = 'toast';
+  el.textContent = text;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2300);
+}
+
+function showInstallTip() {
+  // 检测是否已安装（standalone模式）
+  if (window.matchMedia('(display-mode: standalone)').matches) return;
+  document.getElementById('install-tip').style.display = 'block';
+  setTimeout(() => {
+    const tip = document.getElementById('install-tip');
+    if (tip) tip.style.display = 'none';
+  }, 8000);
+}
+
+function showGallery() {
+  showToast('📁 照片/视频已自动保存到设备下载文件夹');
+}
+
+// ============================================================
+//  PWA 安装事件
+// ============================================================
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  // 显示自定义安装提示
+  setTimeout(() => {
+    const tip = document.getElementById('install-tip');
+    tip.innerHTML = `<span class="close-tip" onclick="this.parentElement.style.display='none'">✕</span>
+      📱 <b style="color:#00f5ff">安装忍者猫到桌面</b><br/>
+      <button onclick="installPWA()" style="margin-top:8px;padding:8px 20px;background:linear-gradient(135deg,#00f5ff,#7b2ff7);border:none;border-radius:99px;color:#fff;font-weight:800;font-size:0.85rem;cursor:pointer">⚔️ 立即安装</button>`;
+    tip.style.display = 'block';
+  }, 2000);
+});
+
+function installPWA() {
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.userChoice.then(r => {
+      if (r.outcome === 'accepted') showToast('✅ 安装成功！可在桌面找到忍者猫');
+      deferredInstallPrompt = null;
+      document.getElementById('install-tip').style.display = 'none';
+    });
+  }
+}
+
+// Service Worker 注册
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
