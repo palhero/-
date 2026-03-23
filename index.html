@@ -96,7 +96,10 @@
     /* 移动摇杆区 */
     #joystick-zone{
       position:absolute;bottom:140px;left:20px;
-      width:110px;height:110px;
+      width:130px;height:130px;
+      touch-action:none;
+      -webkit-tap-highlight-color:transparent;
+      z-index:100;
     }
     #joystick-outer{
       width:110px;height:110px;
@@ -105,6 +108,7 @@
       border-radius:50%;
       position:relative;
       backdrop-filter:blur(4px);
+      pointer-events:none;
     }
     #joystick-inner{
       position:absolute;
@@ -115,6 +119,7 @@
       top:50%;left:50%;
       transform:translate(-50%,-50%);
       transition:background 0.15s;
+      pointer-events:none;
     }
     #joystick-inner.active{background:rgba(0,245,255,0.8);}
 
@@ -136,9 +141,14 @@
       transition:transform 0.1s,opacity 0.1s;
       box-shadow:0 4px 16px rgba(0,0,0,0.4);
       -webkit-user-select:none;user-select:none;
+      -webkit-tap-highlight-color:transparent;
+      touch-action:manipulation;
+      padding:0;
+      margin:0;
+      position:relative;
     }
     .act-btn:active{transform:scale(0.88);opacity:0.8;}
-    .act-btn span{font-size:0.55rem;color:#fff;margin-top:1px;font-weight:700;letter-spacing:0.5px;}
+    .act-btn span{font-size:0.55rem;color:#fff;margin-top:1px;font-weight:700;letter-spacing:0.5px;pointer-events:none;}
     #btn-slash{background:radial-gradient(circle,#e94560,#8b0000);}
     #btn-stab {background:radial-gradient(circle,#7b2ff7,#3d0070);}
     #btn-roar {background:radial-gradient(circle,#f5a623,#8b4500);}
@@ -498,12 +508,19 @@ function initCatPos() {
   cat.x = window.innerWidth  / 2;
   cat.y = window.innerHeight * 0.72;
   cat.groundY = cat.y;
+  console.log('initCatPos: cat position set to', cat.x, cat.y);
+  console.log('Canvas size:', arCanvas.width, 'x', arCanvas.height);
+  console.log('Window size:', window.innerWidth, 'x', window.innerHeight);
 }
 
 // ============================================================
 //  主渲染循环
 // ============================================================
+let frameCount = 0;
+
 function renderLoop() {
+  frameCount++;
+
   ctx.clearRect(0, 0, arCanvas.width, arCanvas.height);
 
   updateCat();
@@ -512,6 +529,11 @@ function renderLoop() {
   document.getElementById('status-action').textContent = actionLabel(cat.action);
   document.getElementById('status-pos').textContent =
     `${Math.round(cat.x / arCanvas.width * 100)}% / ${Math.round(cat.y / arCanvas.height * 100)}%`;
+
+  // 每60帧输出一次日志（避免日志过多）
+  if (frameCount % 60 === 0) {
+    console.log('RenderLoop frame:', frameCount, 'cat pos:', cat.x, cat.y, 'action:', cat.action, 'canvas size:', arCanvas.width, arCanvas.height);
+  }
 
   requestAnimationFrame(renderLoop);
 }
@@ -528,6 +550,7 @@ function updateCat() {
 
   // 摇杆移动
   if (joystick.active && (joystick.dx !== 0 || joystick.dy !== 0)) {
+    console.log('Moving cat, joystick:', joystick.dx, joystick.dy);
     const speed = 5;
     const nx = cat.x + joystick.dx * speed;
     const ny = cat.y + joystick.dy * speed;
@@ -540,6 +563,7 @@ function updateCat() {
     }
     cat.facing = joystick.dx > 0.1 ? 1 : joystick.dx < -0.1 ? -1 : cat.facing;
     if (cat.action === 'idle') cat.action = 'walk';
+    console.log('Cat new position:', cat.x, cat.y, 'action:', cat.action);
   } else {
     if (cat.action === 'walk') cat.action = 'idle';
   }
@@ -581,6 +605,8 @@ function updateCat() {
 // ============================================================
 function drawCat() {
   const { x, y, size, action, facing, frame, slashLines, roarRings } = cat;
+
+  console.log('Drawing cat at:', x, y, 'action:', action, 'facing:', facing);
 
   ctx.save();
   ctx.translate(x, y);
@@ -643,11 +669,16 @@ function drawCat() {
 
   // 身体
   ctx.fillStyle = '#111';
-  ctx.shadowColor = 'rgba(0,0,0,0.5)';
-  ctx.shadowBlur = 8;
+  ctx.shadowColor = 'rgba(0,245,255,0.8)';
+  ctx.shadowBlur = 15;
   ctx.beginPath();
   ctx.ellipse(0, -size*0.28, size*0.32, size*0.38, 0, 0, Math.PI*2);
   ctx.fill();
+
+  // 添加青色边框，让猫咪更容易被看到
+  ctx.strokeStyle = 'rgba(0,245,255,0.6)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
   ctx.shadowBlur = 0;
 
   // 忍者衣服纹路
@@ -746,6 +777,11 @@ function drawHead(ctx, action, frame, s, size) {
   ctx.beginPath();
   ctx.ellipse(0, 0, sz*0.32, sz*0.3, 0, 0, Math.PI*2);
   ctx.fill();
+
+  // 添加青色边框
+  ctx.strokeStyle = 'rgba(0,245,255,0.5)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
   ctx.shadowBlur = 0;
 
   // 忍者头巾
@@ -938,12 +974,24 @@ function drawKatana(ctx, sz, action) {
 function handleTouch(e, action) {
   e.preventDefault();
   e.stopPropagation();
-  console.log('Touch event received:', action);
+  console.log('Touch event received:', action, 'at', new Date().toISOString());
+  
+  // 添加视觉反馈
+  const btn = e.currentTarget;
+  if (btn) {
+    btn.style.transform = 'scale(0.95)';
+    btn.style.opacity = '0.8';
+    setTimeout(() => {
+      btn.style.transform = '';
+      btn.style.opacity = '';
+    }, 150);
+  }
+  
   triggerAction(action);
 }
 
 function triggerAction(type) {
-  console.log('Action triggered:', type);
+  console.log('Action triggered:', type, 'at', new Date().toISOString());
   cat.action = type;
   cat.actionTimer = type === 'roar' ? 70 : type === 'jump' ? 50 : 35;
 
@@ -1087,41 +1135,58 @@ function initJoystickElements() {
 
 function handleJoystickTouchStart(e) {
   e.preventDefault();
+  e.stopPropagation();
+  console.log('Joystick touch started');
   joystick.active = true;
-  if (joystickInner) joystickInner.classList.add('active');
+  const inner = document.getElementById('joystick-inner');
+  if (inner) inner.classList.add('active');
   handleJoystickMove(e);
 }
 
 function handleJoystickTouchMove(e) {
-  if (!joystickOuter) return;
   e.preventDefault();
+  e.stopPropagation();
   handleJoystickMove(e);
 }
 
 function handleJoystickMove(e) {
+  const outer = document.getElementById('joystick-outer');
+  const inner = document.getElementById('joystick-inner');
+  
+  if (!outer) {
+    console.error('Joystick outer not found');
+    return;
+  }
+  
   const t = e.touches ? e.touches[0] : e;
-  const rect = joystickOuter.getBoundingClientRect();
+  const rect = outer.getBoundingClientRect();
   const x = t.clientX - rect.left - rect.width/2;
   const y = t.clientY - rect.top  - rect.height/2;
   const maxR = joystick.maxR;
   const dist = Math.sqrt(x*x + y*y);
   const ratio = dist > maxR ? maxR/dist : 1;
   const cx = x * ratio, cy = y * ratio;
-  if (joystickInner) {
-    joystickInner.style.transform = `translate(calc(-50% + ${cx}px), calc(-50% + ${cy}px))`;
+  
+  if (inner) {
+    inner.style.transform = `translate(calc(-50% + ${cx}px), calc(-50% + ${cy}px))`;
   }
+  
   joystick.dx = cx / maxR;
   joystick.dy = cy / maxR;
+  console.log('Joystick move:', joystick.dx, joystick.dy);
 }
 
 function handleJoystickTouchEnd(e) {
   e.preventDefault();
+  e.stopPropagation();
+  console.log('Joystick touch ended');
   joystick.active = false;
   joystick.dx = 0;
   joystick.dy = 0;
-  if (joystickInner) {
-    joystickInner.style.transform = 'translate(-50%,-50%)';
-    joystickInner.classList.remove('active');
+  const inner = document.getElementById('joystick-inner');
+  if (inner) {
+    inner.style.transform = 'translate(-50%,-50%)';
+    inner.classList.remove('active');
   }
 }
 
@@ -1381,6 +1446,28 @@ function installPWA() {
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+
+// ============================================================
+//  全局触摸调试（仅在安卓PWA上调试时使用）
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('Page loaded, checking touch support...');
+  console.log('Touch support:', 'ontouchstart' in window);
+  console.log('Joystick elements:', {
+    zone: document.getElementById('joystick-zone'),
+    outer: document.getElementById('joystick-outer'),
+    inner: document.getElementById('joystick-inner'),
+    buttons: document.querySelectorAll('.act-btn').length
+  });
+  
+  // 全局触摸监听，用于诊断
+  document.addEventListener('touchstart', (e) => {
+    const target = e.target;
+    console.log('Global touchstart:', target.tagName, target.id, target.className);
+  }, { passive: true });
+  
+  console.log('Global touch listener added');
+});
 </script>
 </body>
 </html>
