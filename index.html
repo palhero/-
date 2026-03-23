@@ -322,7 +322,11 @@
   </div>
 
   <!-- 摇杆 -->
-  <div id="joystick-zone">
+  <div id="joystick-zone"
+       ontouchstart="handleJoystickTouchStart(event)"
+       ontouchmove="handleJoystickTouchMove(event)"
+       ontouchend="handleJoystickTouchEnd(event)"
+       onmousedown="handleJoystickMouseDown(event)">
     <div id="joystick-outer">
       <div id="joystick-inner"></div>
     </div>
@@ -330,16 +334,16 @@
 
   <!-- 动作按钮 -->
   <div id="action-btns">
-    <button class="act-btn" id="btn-slash" data-action="slash">
+    <button class="act-btn" id="btn-slash" ontouchstart="handleTouch(event, 'slash')" onclick="triggerAction('slash')">
       ⚔️<span>劈砍</span>
     </button>
-    <button class="act-btn" id="btn-stab" data-action="stab">
+    <button class="act-btn" id="btn-stab" ontouchstart="handleTouch(event, 'stab')" onclick="triggerAction('stab')">
       🗡️<span>刺击</span>
     </button>
-    <button class="act-btn" id="btn-roar" data-action="roar">
+    <button class="act-btn" id="btn-roar" ontouchstart="handleTouch(event, 'roar')" onclick="triggerAction('roar')">
       😾<span>怒吼</span>
     </button>
-    <button class="act-btn" id="btn-jump" data-action="jump">
+    <button class="act-btn" id="btn-jump" ontouchstart="handleTouch(event, 'jump')" onclick="triggerAction('jump')">
       💨<span>跳跃</span>
     </button>
   </div>
@@ -438,7 +442,6 @@ async function initCamera() {
     resizeCanvas();
     initCatPos();
     initJoystick();
-    initActionButtons();
     requestAnimationFrame(renderLoop);
     console.log('Ninja cat initialized at:', cat.x, cat.y);
     showToast('🐱 忍者猫已就绪！用摇杆移动，右侧按钮出招');
@@ -455,7 +458,6 @@ async function initCamera() {
       resizeCanvas();
       initCatPos();
       initJoystick();
-      initActionButtons();
       requestAnimationFrame(renderLoop);
       showToast('📷 摄像头已启动（无麦克风录音）');
     } catch(e2) {
@@ -933,6 +935,13 @@ function drawKatana(ctx, sz, action) {
 // ============================================================
 //  触发动作
 // ============================================================
+function handleTouch(e, action) {
+  e.preventDefault();
+  e.stopPropagation();
+  console.log('Touch event received:', action);
+  triggerAction(action);
+}
+
 function triggerAction(type) {
   console.log('Action triggered:', type);
   cat.action = type;
@@ -1065,114 +1074,92 @@ function playRoarSound() {
 // ============================================================
 //  摇杆控制
 // ============================================================
-function initJoystick() {
-  const outer = document.getElementById('joystick-outer');
-  const inner = document.getElementById('joystick-inner');
-  const maxR = joystick.maxR;
-  const outer = document.getElementById('joystick-outer');
-  const inner = document.getElementById('joystick-inner');
-  const maxR = joystick.maxR;
 
-  function getPos(e) {
-    const t = e.touches ? e.touches[0] : e;
-    const rect = outer.getBoundingClientRect();
-    return {
-      x: t.clientX - rect.left - rect.width/2,
-      y: t.clientY - rect.top  - rect.height/2,
-    };
-  }
+// 内部摇杆元素
+let joystickOuter = null;
+let joystickInner = null;
 
-  // 触摸事件防止默认行为
-  outer.addEventListener('touchstart', e => {
-    e.preventDefault();
-    joystick.active = true;
-    inner.classList.add('active');
-    // 立即处理初始触摸位置
-    const {x, y} = getPos(e);
-    const dist = Math.sqrt(x*x + y*y);
-    const ratio = dist > maxR ? maxR/dist : 1;
-    const cx = x * ratio, cy = y * ratio;
-    inner.style.transform = `translate(calc(-50% + ${cx}px), calc(-50% + ${cy}px))`;
-    joystick.dx = cx / maxR;
-    joystick.dy = cy / maxR;
-  }, {passive:false});
-
-  outer.addEventListener('touchmove', e => {
-    e.preventDefault();
-    const {x, y} = getPos(e);
-    const dist = Math.sqrt(x*x + y*y);
-    const ratio = dist > maxR ? maxR/dist : 1;
-    const cx = x * ratio, cy = y * ratio;
-    inner.style.transform = `translate(calc(-50% + ${cx}px), calc(-50% + ${cy}px))`;
-    joystick.dx = cx / maxR;
-    joystick.dy = cy / maxR;
-  }, {passive:false});
-
-  const endJoystick = () => {
-    joystick.active = false;
-    joystick.dx = 0; joystick.dy = 0;
-    inner.style.transform = 'translate(-50%,-50%)';
-    inner.classList.remove('active');
-  };
-  outer.addEventListener('touchend', endJoystick);
-  outer.addEventListener('touchcancel', endJoystick);
-  outer.addEventListener('pointerleave', endJoystick);
-
-  // 桌面鼠标支持（调试用）
-  outer.addEventListener('mousedown', e => {
-    joystick.active = true;
-    joystick.startX = e.clientX;
-    joystick.startY = e.clientY;
-    inner.classList.add('active');
-    const onMove = ev => {
-      const x = ev.clientX - joystick.startX;
-      const y = ev.clientY - joystick.startY;
-      const dist = Math.sqrt(x*x + y*y);
-      const r = dist > maxR ? maxR/dist : 1;
-      const cx = x*r, cy = y*r;
-      inner.style.transform = `translate(calc(-50% + ${cx}px), calc(-50% + ${cy}px))`;
-      joystick.dx = cx/maxR; joystick.dy = cy/maxR;
-    };
-    const onUp = () => {
-      endJoystick();
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  });
+function initJoystickElements() {
+  joystickOuter = document.getElementById('joystick-outer');
+  joystickInner = document.getElementById('joystick-inner');
+  console.log('Joystick elements initialized:', joystickOuter, joystickInner);
 }
 
-// 动作按钮事件监听
-function initActionButtons() {
-  const buttons = document.querySelectorAll('.act-btn');
-  buttons.forEach(btn => {
-    const action = btn.getAttribute('data-action');
+function handleJoystickTouchStart(e) {
+  e.preventDefault();
+  joystick.active = true;
+  if (joystickInner) joystickInner.classList.add('active');
+  handleJoystickMove(e);
+}
 
-    // 支持多种事件类型以确保兼容性
-    btn.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      triggerAction(action);
-    }, {passive:false});
+function handleJoystickTouchMove(e) {
+  if (!joystickOuter) return;
+  e.preventDefault();
+  handleJoystickMove(e);
+}
 
-    btn.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      triggerAction(action);
-    });
+function handleJoystickMove(e) {
+  const t = e.touches ? e.touches[0] : e;
+  const rect = joystickOuter.getBoundingClientRect();
+  const x = t.clientX - rect.left - rect.width/2;
+  const y = t.clientY - rect.top  - rect.height/2;
+  const maxR = joystick.maxR;
+  const dist = Math.sqrt(x*x + y*y);
+  const ratio = dist > maxR ? maxR/dist : 1;
+  const cx = x * ratio, cy = y * ratio;
+  if (joystickInner) {
+    joystickInner.style.transform = `translate(calc(-50% + ${cx}px), calc(-50% + ${cy}px))`;
+  }
+  joystick.dx = cx / maxR;
+  joystick.dy = cy / maxR;
+}
 
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      triggerAction(action);
-    });
+function handleJoystickTouchEnd(e) {
+  e.preventDefault();
+  joystick.active = false;
+  joystick.dx = 0;
+  joystick.dy = 0;
+  if (joystickInner) {
+    joystickInner.style.transform = 'translate(-50%,-50%)';
+    joystickInner.classList.remove('active');
+  }
+}
 
-    // 桌面鼠标支持
-    btn.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      triggerAction(action);
-    });
-  });
+function handleJoystickMouseDown(e) {
+  e.preventDefault();
+  joystick.active = true;
+  if (joystickInner) joystickInner.classList.add('active');
+  joystick.startX = e.clientX;
+  joystick.startY = e.clientY;
+
+  const onMove = (ev) => {
+    const x = ev.clientX - joystick.startX;
+    const y = ev.clientY - joystick.startY;
+    const maxR = joystick.maxR;
+    const dist = Math.sqrt(x*x + y*y);
+    const r = dist > maxR ? maxR/dist : 1;
+    const cx = x*r, cy = y*r;
+    if (joystickInner) {
+      joystickInner.style.transform = `translate(calc(-50% + ${cx}px), calc(-50% + ${cy}px))`;
+    }
+    joystick.dx = cx/maxR;
+    joystick.dy = cy/maxR;
+  };
+
+  const onUp = () => {
+    handleJoystickTouchEnd({preventDefault: ()=>{}});
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  };
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+
+function initJoystick() {
+  initJoystickElements();
+  console.log('Joystick initialized');
 }
 
 // ============================================================
